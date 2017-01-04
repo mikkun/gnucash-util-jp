@@ -34,6 +34,8 @@ GnuCashは個人向けのフリーな財務ソフトウエアですが、勘定�
 
 * [IPA明朝・IPAゴシック](http://ipafont.ipa.go.jp/)
 
+* [w3m](http://w3m.sourceforge.net/)
+
 使い方
 ------
 
