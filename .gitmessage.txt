@@ -23,7 +23,7 @@
 # * 🔥 :fire: when removing code or files
 # * 💚 :green_heart: when fixing the CI build
 # * ✅ :white_check_mark: when adding tests
-# * ♻ :recycle: when refactoring (or removing code, moving around etc.)
+# * ♻ :recycle: when refactoring (or moving around)
 # * 🔒 :lock: when dealing with security
 # * ⬆ :arrow_up: when upgrading dependencies
 # * ⬇ :arrow_down: when downgrading dependencies
