@@ -13,7 +13,7 @@
 USAGE() {
     cat << END_USAGE >&2
 Usage   : convert_invoice-gnc2 [-o <前回請求額>] [-p <入金額>] <HTMLファイル>
-Version : Thu Oct 20 00:00:00 JST 2016
+Version : Wed Jun 20 17:00:00 JST 2018
 END_USAGE
 
     exit 1
@@ -177,6 +177,7 @@ awk 'BEGIN{FS="\t"}$2~/^消費税/{print $5 > "'$tmp-tax'"}' $tmp-tsv
 sed -i 's/-/\\\//g'     $tmp-body-1      # 日付表示(YYYY/MM/DD)
 sed -i 's/[!/\]/\\&/g'  $tmp-body-2      # エスケープ処理
 sed -i 's/[^-,.0-9]//g' $tmp-body-{3..5} # 不要な文字の削除
+sed -i 's/\.[0-9]$/&0/' $tmp-body-4      # 銭の単位は小数点以下2桁で表示
 sed -i 's/[^-,.0-9]//g' $tmp-tax         # 不要な文字の削除
 
 # 前回請求額・入金額から繰越金額を計算
