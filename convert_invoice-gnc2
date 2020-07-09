@@ -1,18 +1,18 @@
 #!/bin/bash --
 #
-# Name    : convert_invoice
-# Purpose : GnuCashで作成した得意先請求書(HTMLファイル)を
+# Name    : convert_invoice-gnc2
+# Purpose : GnuCash 2.xで作成した得意先請求書(HTMLファイル)を
 #         : 日本の商慣習に対応したPDFファイルに変換
 #
 # Author  : KUSANAGI Mitsuhisa <mikkun@mbg.nifty.com>
-# Licence : MIT license
+# License : MIT License
 
 #=============================================================================
 # 使い方・バージョン情報
 #=============================================================================
 USAGE() {
     cat << END_USAGE >&2
-Usage   : convert_invoice [-o <前回請求額>] [-p <入金額>] <HTMLファイル>
+Usage   : convert_invoice-gnc2 [-o <前回請求額>] [-p <入金額>] <HTMLファイル>
 Version : Thu Oct 20 00:00:00 JST 2016
 END_USAGE
 
