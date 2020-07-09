@@ -1,0 +1,299 @@
+#!/bin/bash --
+#
+# Name    : convert_invoice-gnc3
+# Purpose : GnuCash 3.xで作成した得意先請求書(HTMLファイル)を
+#         : 日本の商慣習に対応したPDFファイルに変換
+#
+# Author  : KUSANAGI Mitsuhisa <mikkun@mbg.nifty.com>
+# License : MIT License
+
+#=============================================================================
+# 使い方・バージョン情報
+#=============================================================================
+USAGE() {
+    cat << END_USAGE >&2
+Usage   : convert_invoice-gnc3 [-o <前回請求額>] [-p <入金額>] <HTMLファイル>
+Version : Mon Jan 20 15:00:00 JST 2020
+END_USAGE
+
+    exit 1
+}
+
+#=============================================================================
+# 初期設定
+#=============================================================================
+#-----------------------------------------------------------------------------
+# 変数を定義
+#-----------------------------------------------------------------------------
+set -u
+shopt -s expand_aliases
+
+if [ "$(uname)" != 'Linux' ] ; then
+    alias awk='gawk'
+    alias date='gdate'
+    alias fold='gfold'
+    alias sed='gsed'
+    alias tac='tail -r'
+    alias tr='gtr'
+fi
+
+base_dir="$(cd "${0%/*}" && pwd)"
+tmp="/tmp/$$"
+
+log_dir="$base_dir"
+
+IFS="$(printf ' \t\n_')" ; IFS="${IFS%_}"
+LANG='ja_JP.utf8'
+PATH='/usr/bin:/bin'
+export IFS LANG PATH
+
+#-----------------------------------------------------------------------------
+# エラーチェック用の関数を定義
+#-----------------------------------------------------------------------------
+ERROR_CHECK() {
+    [ "$(echo "${PIPESTATUS[@]}" | tr -d ' 0')" = '' ] && return
+    echo "${0##*/}: $1" >&2
+
+    rm -f $tmp-*
+    exit 1
+}
+
+#-----------------------------------------------------------------------------
+# 標準エラー出力をログファイルに書き込む
+#-----------------------------------------------------------------------------
+# exec 2> "$log_dir/${0##*/}.$(date '+%Y%m%d%H%M%S').$$"
+# set -vx
+
+#-----------------------------------------------------------------------------
+# オプションを解析し、引数をチェック
+#-----------------------------------------------------------------------------
+[ "$#" -lt 1 ] || [ "$#" -gt 5 ] && USAGE
+
+echo 0 > $tmp-opening
+echo 0 > $tmp-paid
+
+while getopts ':o:p:' opt ; do
+    case "$opt" in
+        o )
+            opening="$OPTARG"
+            echo -n "$opening" | grep -Eq '^-?[0-9]+$'
+            ERROR_CHECK "$opening: 無効な前回請求額です"
+            echo "$opening" > $tmp-opening
+            ;;
+        p )
+            paid="$OPTARG"
+            echo -n "$paid" | grep -Eq '^-?[0-9]+$'
+            ERROR_CHECK "$paid: 無効な入金額です"
+            echo "$paid" > $tmp-paid
+            ;;
+        * )
+            USAGE
+            ;;
+    esac
+done
+
+shift $((OPTIND - 1))
+
+filename="$*"
+echo -n "$filename" | grep -Eiq '\.html?$'
+ERROR_CHECK "$filename: 無効なHTMLファイルです"
+[ -f "$filename" ]
+ERROR_CHECK "$filename: そのようなファイルはありません"
+
+#=============================================================================
+# メイン処理
+#=============================================================================
+# 作成者情報ファイルの有無をチェック
+[ -f "$base_dir/company.txt" ]
+ERROR_CHECK "$base_dir/company.txt: そのようなファイルはありません"
+
+# テンプレートファイルの有無をチェック
+[ -f "$base_dir/template.svg" ]
+ERROR_CHECK "$base_dir/template.svg: そのようなファイルはありません"
+
+echo '得意先請求書を処理しています...' >&2
+
+# HTMLファイルをテキストファイルに変換
+sed '/class="entries-table"/s/border="0"/border="1"/' "$filename" > $tmp-html
+w3m -T text/html -dump -cols 1024 $tmp-html > $tmp-input
+
+#-----------------------------------------------------------------------------
+# 得意先請求書のヘッダ部分にはめ込む一時ファイルを作成
+#-----------------------------------------------------------------------------
+cp -f "$base_dir/company.txt" $tmp-company
+
+# 変換したテキストファイルからヘッダ部分を抽出
+sed '1,/^┌/!d' $tmp-input | sed '$d' > $tmp-header
+
+# 得意先請求書番号を生成
+grep -E '^請求書 #[0-9]+$' $tmp-header |
+tr -cd '\n0-9'                         |
+awk '{print "(請求No."$0")"}'          > $tmp-invoice_id
+
+# 提出先情報を生成
+sed 's/ \{16\}.*//' $tmp-header                   |
+grep -Ev '^請求書 #[0-9]+$'                       |
+grep -Ev '^$'                                     |
+awk 'BEGIN{OFS="\t"}{print NR+50,$0}'             |
+awk 'BEGIN{FS="\t"}$2~/^〒/{n=50}{print $1-n,$2}' | # 1行目に郵便番号
+sort -k1,1n                                       |
+sed '/^51 /s/^/\n/'                               | # 会社名の前に空行
+sed 's/^[0-9]\+ //'                               > $tmp-customer
+
+# 得意先請求書締切日を生成
+grep -E '^ +日付: +' $tmp-header     |
+awk '{print $NF}'                    |
+date -f - '+%Y年 %_m月 %_d日 締切分' > $tmp-invoice_date
+
+# 作成者情報・提出先情報の文字列を編集
+sed -i 's/[!/\]/\\&/g' $tmp-{company,customer} # エスケープ処理
+
+# 作成者情報・提出先情報のファイルについて、総行数が8行未満でも行数を8行にする
+yes '' | head -n8 >> $tmp-company  ; sed -i '1,8!d' $tmp-company
+yes '' | head -n8 >> $tmp-customer ; sed -i '1,8!d' $tmp-customer
+
+#-----------------------------------------------------------------------------
+# 得意先請求書のボディ部分にはめ込む一時ファイルを作成
+#-----------------------------------------------------------------------------
+# 変換したテキストファイルからタブ区切りのファイルを作成
+sed '/^┌/,/┘$/!d' $tmp-input                      |
+sed '1,3d'                                          |
+sed '$d'                                            |
+sed '/^├/d'                                        |
+awk 'BEGIN{FS="│";OFS="\t"}{print $2,$3,$5,$6,$9}' |
+sed 's/^ //'                                        |
+sed 's/ *\t */\t/g'                                 |
+sed 's/\(\t\| \)*$//'                               > $tmp-tsv
+# 1:日付 2:説明 3:数量 4:単価 5:合計
+
+# 売上について、フィールド項目に基づいてファイルを分割
+sed '/\t消費税([0-9]\+%)\t/d' $tmp-tsv |
+awk 'BEGIN{FS="\t"}NF==5{for(i=1;i<=5;i++){print $i > "'$tmp-body-'"i}}'
+
+# 消費税額を取得
+echo 0 > $tmp-tax
+awk 'BEGIN{FS="\t"}$2~/^消費税/{print $5 > "'$tmp-tax'"}' $tmp-tsv
+
+# 売上項目の内容に応じて文字列を編集
+sed -i 's/-/\\\//g'     $tmp-body-1      # 日付表示(YYYY/MM/DD)
+sed -i 's/[!/\]/\\&/g'  $tmp-body-2      # エスケープ処理
+sed -i 's/[^-,.0-9]//g' $tmp-body-{3..5} # 不要な文字の削除
+sed -i 's/\.[0-9]$/&0/' $tmp-body-4      # 銭の単位は小数点以下2桁で表示
+sed -i 's/[^-,.0-9]//g' $tmp-tax         # 不要な文字の削除
+
+# 前回請求額・入金額から繰越金額を計算
+cat $tmp-{opening,paid}                                    |
+awk 'NR==1{r1=$0}NR==2{r2=$0}END{printf "%\047d\n",r1-r2}' > $tmp-balance
+
+# 合計から買上額を計算
+tr -d ',' < $tmp-body-5                   |
+awk '{sum+=$0}END{printf "%\047d\n",sum}' > $tmp-subtotal
+
+# 繰越金額・買上額・消費税額から今回請求額を計算
+cat $tmp-{balance,subtotal,tax}             |
+tr -d ','                                   |
+awk '{sum+=$0}END{printf "￥%\047d\n",sum}' > $tmp-amount_due
+
+# 売上項目のファイル各々について、総件数が30件未満でも行数を30行にする
+seq 1 5                                                                   \
+    | xargs -I@ echo                                                      \
+    'yes "" | head -n30 >> '$tmp'-body-@ ; sed -i "1,30!d" '$tmp'-body-@' \
+    | bash
+
+#-----------------------------------------------------------------------------
+# テンプレートファイルに各項目のデータをはめ込んで出力
+#-----------------------------------------------------------------------------
+cp -f "$base_dir/template.svg" $tmp-template
+
+# 作成者情報をはめ込む
+seq 1 8                                                    \
+    | xargs -I@ echo                                       \
+    'sed -i "/id=\"company@\"/,+2s/>[^<]*</>$(awk "NR==@"' \
+    $tmp'-company)</"'                                     \
+    $tmp'-template'                                        \
+    | bash
+
+# 提出先情報をはめ込む
+seq 1 8                                                     \
+    | xargs -I@ echo                                        \
+    'sed -i "/id=\"customer@\"/,+2s/>[^<]*</>$(awk "NR==@"' \
+    $tmp'-customer)</"'                                     \
+    $tmp'-template'                                         \
+    | bash
+
+# 得意先請求書番号・得意先請求書締切日をはめ込む
+sed -i '/id="invoice_id1"/,+2s/>[^<]*</>'"$(cat $tmp-invoice_id)"'</' \
+    $tmp-template
+sed -i '/id="invoice_date1"/,+2s/>[^<]*</>'"$(cat $tmp-invoice_date)"'</' \
+    $tmp-template
+
+# 日付をはめ込む
+seq 1 30                                                \
+    | xargs -I@ echo                                    \
+    'sed -i "/id=\"date@\"/,+2s/>[^<]*</>$(awk "NR==@"' \
+    $tmp'-body-1)</"'                                   \
+    $tmp'-template'                                     \
+    | bash
+
+# 説明をはめ込む
+seq 1 30                                                       \
+    | xargs -I@ echo                                           \
+    'sed -i "/id=\"description@\"/,+2s/>[^<]*</>$(awk "NR==@"' \
+    $tmp'-body-2)</"'                                          \
+    $tmp'-template'                                            \
+    | bash
+
+# 数量をはめ込む
+seq 1 30                                                    \
+    | xargs -I@ echo                                        \
+    'sed -i "/id=\"quantity@\"/,+2s/>[^<]*</>$(awk "NR==@"' \
+    $tmp'-body-3)</"'                                       \
+    $tmp'-template'                                         \
+    | bash
+
+# 単価をはめ込む
+seq 1 30                                                      \
+    | xargs -I@ echo                                          \
+    'sed -i "/id=\"unit_price@\"/,+2s/>[^<]*</>$(awk "NR==@"' \
+    $tmp'-body-4)</"'                                         \
+    $tmp'-template'                                           \
+    | bash
+
+# 合計をはめ込む
+seq 1 30                                                 \
+    | xargs -I@ echo                                     \
+    'sed -i "/id=\"total@\"/,+2s/>[^<]*</>$(awk "NR==@"' \
+    $tmp'-body-5)</"'                                    \
+    $tmp'-template'                                      \
+    | bash
+
+# 前回請求額・入金額をはめ込む
+sed -i '/id="opening_balance1"/,+2s/>[^<]*</>'"$(awk \
+    '{printf "%\047d\n",$0}' $tmp-opening)"'</'      \
+    $tmp-template
+sed -i '/id="paid1"/,+2s/>[^<]*</>'"$(awk    \
+    '{printf "%\047d\n",$0}' $tmp-paid)"'</' \
+    $tmp-template
+
+# 繰越金額・買上額・消費税額・今回請求額をはめ込む
+sed -i '/id="balance1"/,+2s/>[^<]*</>'"$(cat $tmp-balance)"'</' \
+    $tmp-template
+sed -i '/id="subtotal1"/,+2s/>[^<]*</>'"$(cat $tmp-subtotal)"'</' \
+    $tmp-template
+sed -i '/id="tax1"/,+2s/>[^<]*</>'"$(cat $tmp-tax)"'</' \
+    $tmp-template
+sed -i '/id="amount_due1"/,+2s/>[^<]*</>'"$(cat $tmp-amount_due)"'</' \
+    $tmp-template
+
+# InkscapeでSVGファイルをPDFファイルに変換
+mv -f $tmp-template{,.svg} # 警告抑制のため、拡張子付加
+inkscape $tmp-template.svg \
+    -A "$(echo "$filename" | sed 's/\.[Hh][Tt][Mm][Ll]\?$//').pdf"
+
+echo '得意先請求書の変換に成功しました' >&2
+
+#=============================================================================
+# 終了処理
+#=============================================================================
+rm -f $tmp-*
+exit 0
