@@ -16,7 +16,7 @@ GnuCashは個人向けのフリーな財務ソフトウエアですが、勘定�
 
 という弱点があり、特に2.と3.に関しては日本の商慣習下で使う場合、いささか不便なものがあります。
 
-**gnucash-util-jp**の`convert_invoice`は、これらの請求書生成における弱点をカバーするためのシェルスクリプトです。
+**gnucash-util-jp**の`convert_invoice-gnc2`および`convert_invoice-gnc3`は、これらの請求書生成における弱点をカバーするためのシェルスクリプトです。
 
 特徴
 ----
@@ -41,11 +41,16 @@ GnuCashは個人向けのフリーな財務ソフトウエアですが、勘定�
 
 1. 作成者情報ファイル`company.txt`を適宜編集
 
-2. GnuCashを起動し、\[帳票\]-\[ビジネス\]-\[印刷可能な得意先請求書\]で得意先請求書を作成後、\[エクスポート\]でHTMLファイルとして保存
+2. GnuCashを起動し、\[帳票\]-\[ビジネス\]-\[印刷可能な請求書\]で得意先請求書を作成後、\[エクスポート\]でHTMLファイルとして保存
 
-3. 保存したHTMLファイルを`convert_invoice`コマンドでPDFファイルに変換
+3. 保存したHTMLファイルを`convert_invoice-gnc2`あるいは`convert_invoice-gnc3`コマンドでPDFファイルに変換
 
-        $ ./convert_invoice example.html
+    ```console
+    # GnuCash 2.xで作成したHTMLファイルの場合
+    $ ./convert_invoice-gnc2 example-gnc2.html
+    # GnuCash 3.xで作成したHTMLファイルの場合
+    $ ./convert_invoice-gnc3 example-gnc3.html
+    ```
 
 オプション
 ----------
@@ -57,7 +62,9 @@ GnuCashは個人向けのフリーな財務ソフトウエアですが、勘定�
 インストール
 ------------
 
-    $ git clone https://github.com/mikkun/gnucash-util-jp.git
+```console
+$ git clone https://github.com/mikkun/gnucash-util-jp.git
+```
 
 ToDo
 ----
@@ -65,6 +72,8 @@ ToDo
 1. 売上件数が30件を超えた場合、残りを次ページに送るようにする
 
 2. 作成者および提出先の会社名を大き目のフォントサイズで表示する
+
+3. GnuCash 4.xで作成したHTMLファイルに対応する
 
 作者
 ----
@@ -74,4 +83,4 @@ ToDo
 ライセンス
 ----------
 
-[MIT](https://github.com/mikkun/gnucash-util-jp/blob/master/LICENCE)
+[MIT License](./LICENSE)
