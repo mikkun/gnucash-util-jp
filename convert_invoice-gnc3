@@ -13,7 +13,7 @@
 USAGE() {
     cat << END_USAGE >&2
 Usage   : convert_invoice-gnc3 [-o <前回請求額>] [-p <入金額>] <HTMLファイル>
-Version : Mon Jan 20 15:00:00 JST 2020
+Version : Fri Aug  7 18:00:00 JST 2020
 END_USAGE
 
     exit 1
@@ -169,6 +169,9 @@ sed 's/\(\t\| \)*$//'                               > $tmp-tsv
 # 売上について、フィールド項目に基づいてファイルを分割
 sed '/\t消費税([0-9]\+%)\t/d' $tmp-tsv |
 awk 'BEGIN{FS="\t"}NF==5{for(i=1;i<=5;i++){print $i > "'$tmp-body-'"i}}'
+
+# 説明について、19文字以上であれば17文字に短縮し、末尾に"..."を付加
+sed -i '/^.\{19\}/s/^\(.\{17\}\).*/\1.../' $tmp-body-2
 
 # 消費税額を取得
 echo 0 > $tmp-tax
