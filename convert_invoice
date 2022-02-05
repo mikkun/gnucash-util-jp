@@ -19,7 +19,7 @@
 USAGE() {
     cat << END_USAGE >&2
 使い方     : ${0##*/} [-o <前回請求額>] [-p <入金額>] <HTMLファイル>
-バージョン : Thu Jan  6 04:00:00 JST 2022
+バージョン : Sun Feb  6 05:00:00 JST 2022
 END_USAGE
 
     exit 1
@@ -158,7 +158,7 @@ date -f - '+%Y年 %_m月 %_d日 締切分'                     > $tmp-invoice_da
 # 作成者情報・提出先情報の文字列を編集
 sed -i 's/[!/\]/\\&/g' $tmp-{company,customer} # エスケープ処理
 
-# 作成者情報・提出先情報のファイルについて、総行数が8行未満でも行数を8行にする
+# 作成者情報・提出先情報のファイルについて、表示行数が8行未満でも8行に増やす
 yes '' | head -n8 >> $tmp-company  ; sed -i '1,8!d' $tmp-company
 yes '' | head -n8 >> $tmp-customer ; sed -i '1,8!d' $tmp-customer
 
@@ -180,19 +180,17 @@ awk 'BEGIN{FS="│";OFS="\t"}             \
            $9=sprintf("%\047d",$9);      \
            print $2,$3,$5,$6,$9}'        > $tmp-tsv
 
+# 消費税額の記載の有無をチェック
+grep -Eq $'\t[^\t]*消費税[^\t]*[０-９0-9]+[％%][^\t]*\t' $tmp-tsv
+ERROR_CHECK "$filename: 消費税額の記載がありません"
+
 # 売上について、フィールド項目に基づいてファイルを分割
-sed '/\t消費税[（(][０-９0-9]\+[％%][）)]\t/d' $tmp-tsv |
+awk 'BEGIN{FS="\t"}$2!~/.*消費税.*[０-９0-9]+[％%].*/' $tmp-tsv |
 awk 'BEGIN{FS="\t"}NF==5{for(i=1;i<=5;i++){print $i > "'$tmp-body-'"i}}'
 
-# 説明について、19文字以上であれば17文字に短縮し、末尾に"..."を付加
-sed -i '/^.\{19\}/s/^\(.\{17\}\).*/\1.../' $tmp-body-2
-
-# 消費税額を取得
-echo 0 > $tmp-tax
-awk 'BEGIN{FS="\t"}                                                        \
-     $2~/^消費税[（(][０-９0-9]+[％%][）)]$/{gsub(/[^-0-9.]/,"",$5);t+=$5} \
-     END{printf "%\047d\n",t}'                                             \
-    $tmp-tsv > $tmp-tax
+# 説明について、長過ぎるものは短縮し、後ろに短縮したことを示す"..."を付加
+sed -i '/^.\{18\}.*※$/s/^\(.\{15\}\).*/\1... ※/' $tmp-body-2 # 軽減税率
+sed -i '/^.\{18\}.*[^※]$/s/^\(.\{17\}\).*/\1.../' $tmp-body-2 # 標準税率
 
 # 売上項目の内容に応じて文字列を編集
 sed -i 's/-/\\\//g'    $tmp-body-1 # 日付表示(YYYY/MM/DD)
@@ -206,12 +204,54 @@ awk 'NR==1{r1=$0}NR==2{r2=$0}END{printf "%\047d\n",r1-r2}' > $tmp-balance
 tr -d ',' < $tmp-body-5                   |
 awk '{sum+=$0}END{printf "%\047d\n",sum}' > $tmp-subtotal
 
+# 消費税額を取得
+awk 'BEGIN{FS="\t"}                                                    \
+     $2~/.*消費税.*[０-９0-9]+[％%].*/{gsub(/[^-0-9.]/,"",$5);tax+=$5} \
+     END{printf "%\047d\n",tax}'                                       \
+    $tmp-tsv > $tmp-tax
+
 # 繰越金額・買上額・消費税額から今回請求額を計算
 cat $tmp-{balance,subtotal,tax}             |
 tr -d ','                                   |
 awk '{sum+=$0}END{printf "￥%\047d\n",sum}' > $tmp-amount_due
 
-# 売上項目のファイル各々について、総件数が30件未満でも行数を30行にする
+# 税率ごとに、買上額(税抜)・消費税額(端数切捨て)を計算
+awk 'BEGIN{FS="\t"}$2!~/.*消費税.*[０-９0-9]+[％%].*/' $tmp-tsv             |
+awk 'BEGIN{FS="\t";is_found_reduced=0;is_found_standard=0}                  \
+     $2 ~/※$/{is_found_reduced =1;gsub(/[^-0-9.]/,"",$5);sum_reduced +=$5} \
+     $2!~/※$/{is_found_standard=1;gsub(/[^-0-9.]/,"",$5);sum_standard+=$5} \
+     END{if(is_found_reduced){                                              \
+             printf "%\047d\n",sum_reduced      > "'$tmp-sum-reduced'";     \
+             printf "%\047d\n",sum_reduced*0.08 > "'$tmp-tax-reduced'"}     \
+         if(is_found_standard){                                             \
+             printf "%\047d\n",sum_standard      > "'$tmp-sum-standard'";   \
+             printf "%\047d\n",sum_standard*0.10 > "'$tmp-tax-standard'"}}'
+
+# 税率ごとに区分した買上額・消費税額を売上項目のファイルそれぞれに追記
+text_reduced='-------------------------------------'
+[ -f $tmp-sum-reduced ] && [ -f $tmp-tax-reduced ] \
+    && text_reduced='---------- ※は軽減税率対象 ---------'
+echo '----------'    >> $tmp-body-1
+echo "$text_reduced" >> $tmp-body-2
+echo '-----------'   >> $tmp-body-3
+echo '----------'    >> $tmp-body-4
+echo '-------------' >> $tmp-body-5
+if [ -f $tmp-sum-reduced ] && [ -f $tmp-tax-reduced ] ; then
+    echo ''              >> $tmp-body-1
+    echo ' 8.00% 対象:'  >> $tmp-body-2
+    cat $tmp-sum-reduced >> $tmp-body-3
+    echo '消費税:'       >> $tmp-body-4
+    cat $tmp-tax-reduced >> $tmp-body-5
+fi
+if [ -f $tmp-sum-standard ] && [ -f $tmp-tax-standard ] ; then
+    echo ''               >> $tmp-body-1
+    echo '10.00% 対象:'   >> $tmp-body-2
+    cat $tmp-sum-standard >> $tmp-body-3
+    echo '消費税:'        >> $tmp-body-4
+    cat $tmp-tax-standard >> $tmp-body-5
+fi
+
+# 売上項目のファイルそれぞれについて、表示行数が30行未満でも30行に増やす
 seq 1 5                                                                     \
     | xargs -I@ echo                                                        \
       'yes "" | head -n30 >> '$tmp'-body-@ ; sed -i "1,30!d" '$tmp'-body-@' \
@@ -239,9 +279,9 @@ seq 1 8                                                       \
     | bash
 
 # 得意先請求書番号・得意先請求書締切日をはめ込む
-sed -i '/id="invoice_id1"/,+2s/>[^<]*</>'"$(cat $tmp-invoice_id)"'</' \
+sed -i '/id="invoice_id1"/,+3s/>[^<]*</>'"$(cat $tmp-invoice_id)"'</' \
     $tmp-template
-sed -i '/id="invoice_date1"/,+2s/>[^<]*</>'"$(cat $tmp-invoice_date)"'</' \
+sed -i '/id="invoice_date1"/,+3s/>[^<]*</>'"$(cat $tmp-invoice_date)"'</' \
     $tmp-template
 
 # 日付をはめ込む
@@ -285,21 +325,21 @@ seq 1 30                                                   \
     | bash
 
 # 前回請求額・入金額をはめ込む
-sed -i '/id="opening_balance1"/,+2s/>[^<]*</>'"$(awk \
+sed -i '/id="opening_balance1"/,+3s/>[^<]*</>'"$(awk \
     '{printf "%\047d\n",$0}' $tmp-opening)"'</'      \
     $tmp-template
-sed -i '/id="paid1"/,+2s/>[^<]*</>'"$(awk    \
+sed -i '/id="paid1"/,+3s/>[^<]*</>'"$(awk    \
     '{printf "%\047d\n",$0}' $tmp-paid)"'</' \
     $tmp-template
 
 # 繰越金額・買上額・消費税額・今回請求額をはめ込む
-sed -i '/id="balance1"/,+2s/>[^<]*</>'"$(cat $tmp-balance)"'</' \
+sed -i '/id="balance1"/,+3s/>[^<]*</>'"$(cat $tmp-balance)"'</' \
     $tmp-template
-sed -i '/id="subtotal1"/,+2s/>[^<]*</>'"$(cat $tmp-subtotal)"'</' \
+sed -i '/id="subtotal1"/,+3s/>[^<]*</>'"$(cat $tmp-subtotal)"'</' \
     $tmp-template
-sed -i '/id="tax1"/,+2s/>[^<]*</>'"$(cat $tmp-tax)"'</' \
+sed -i '/id="tax1"/,+3s/>[^<]*</>'"$(cat $tmp-tax)"'</' \
     $tmp-template
-sed -i '/id="amount_due1"/,+2s/>[^<]*</>'"$(cat $tmp-amount_due)"'</' \
+sed -i '/id="amount_due1"/,+3s/>[^<]*</>'"$(cat $tmp-amount_due)"'</' \
     $tmp-template
 
 # InkscapeでSVGファイルをPDFファイルに変換
