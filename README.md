@@ -11,8 +11,8 @@ GnuCashは個人向けのフリーな財務ソフトウエアですが、勘定�
 確かにGnuCashのビジネス機能は強力で使いやすいですが、得意先に送る請求書を生成して印刷する際に、
 
 1. HTML形式でスタイルシートが使えるものの、デザインの自由度が低い
-2. 消費税について、「全売上金額の合計×税率」の様式で出力できない
-3. 請求額について、繰越金額を加味した計算ができない
+2. 消費税について、「税率ごとに区分して合計した税抜金額×税率」の様式で出力できない
+3. 請求額について、繰越金額を含めることができない
 
 <!-- markdownlint-disable-next-line no-inline-html -->
 という弱点があり、特に<strong>2.</strong>と<strong>3.</strong>に関しては日本の商慣習下で使う場合、いささか不便なものがあります。
@@ -26,9 +26,10 @@ GnuCashは個人向けのフリーな財務ソフトウエアですが、勘定�
 
 ## 依存
 
+- [Bash](https://www.gnu.org/software/bash/)
 - [GnuCash](https://www.gnucash.org/) (&gt;= 2.6.15)
-- [Inkscape](https://inkscape.org/) (&gt;= 0.92.1)
 - [IPA明朝・IPAゴシック](https://moji.or.jp/ipafont/)
+- [Inkscape](https://inkscape.org/) (&gt;= 0.92.1)
 - [w3m](https://github.com/tats/w3m)
 
 ## インストール
@@ -49,7 +50,7 @@ git clone https://github.com/mikkun/gnucash-util-jp.git
 3. エクスポートしたHTMLファイルを`convert_invoice`コマンドでPDFファイルに変換
 
     ```shell
-    ./convert_invoice example-gnc3.html
+    ./convert_invoice example.html
     ```
 
 :warning: なお、テンプレートファイル`template.svg`を編集する必要は通常ありませんが、編集する場合は必ず「プレーンSVG」形式で保存してください。
@@ -61,7 +62,7 @@ git clone https://github.com/mikkun/gnucash-util-jp.git
 
 ## TODO
 
-1. 売上件数が30件を超えた場合、残りを次ページに送るようにする
+1. 売上項目の行数が30行を超えた場合、残りを次ページに送るようにする
 2. 作成者および提出先の会社名を大きめのフォントサイズで表示する
 
 ## ライセンス
